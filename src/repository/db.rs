@@ -53,7 +53,7 @@ impl Repository {
         let user = sqlx::query_as!(
             User,
                 r#"
-                SELECT * FROM inventory
+                SELECT * FROM users
                 WHERE id = $1
                 "#,
             id
@@ -64,11 +64,41 @@ impl Repository {
         Ok(user)
     }
 
-    pub async update_user(
+    pub async fn update_user(
         &self,
         id: Uuid,
         req: &UpdateUser
     ) -> Result<User, Error> {
-        let user = sqlx::
+        let user = sqlx::query_as!(
+            User,
+                r#"
+                UPDATE users
+                SET
+                    name = COALESCE($1, name),
+                    email = COALESCE($2, email),
+                    is_active = COALESCE($3, is_active)
+                "#,
+            req.name.as_ref(),
+            req.email.as_ref(),
+            req.is_active
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(user)
+    }
+
+    pub async fn delete_user(
+        &self,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "DELETE FROM users WHERE id = $1",
+            id
+        )
+        .execute(&self.pool)
+        .await?;
+    
+        Ok(())
     }
 }
