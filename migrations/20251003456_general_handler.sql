@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- acounting for Order ↔ Item = many-to-many  instead of using foreign key within them--
+-- acounting for Order ↔ Item = many-to-many  instead of using foreign key within each of them --
 CREATE TABLE order_items (
     order_id UUID NOT NULL,
     item_id UUID NOT NULL,
