@@ -106,3 +106,9 @@ pub struct UpdateUser {
     pub email: Option<String>,
     pub is_active: Option<bool>,
 }
+
+// Helper struct for status query
+#[derive(Debug, Deserialize)]
+pub struct StatusQuery {
+    pub status: OrderStatus,
+}

@@ -8,6 +8,11 @@ use crate::handlers::user_handler;
 use crate::handlers::order_handler;
 // use crate::db::get_db_pool;
 use crate::repository::db;
+use crate::repository::items_db::OrderRepository;
+use crate::repository::order_db::ItemRepository;
+use crate::repository::users_db::UserRepository;
+// handler function for the task 3 
+use crate::repository::repo_handler;
 
 use std::fs::File;
 use actix_web::{web, App, HttpRequest, HttpServer};
@@ -35,16 +40,22 @@ async fn main() -> std::io::Result<()> {
     
 
     // task 3 wrapper
-    
     let pool = db::get_db_pool();
     sqlx::migrate!("./migrations").run(&pool).await.expect("Migrations Failed");
-    let repo = web::Data::new(db::new(pool.clone()));
+    // let repo = web::Data::new(db::new(pool.clone()));
+    let user_repo = web::Data::new(UserRepository::new(&pool));
+    let items_repo = web::Data::new(ItemRepository::new(&pool));
+    let order_repo = web::Data::new(OrderRepository::new(&pool));
 
+    let port = env::var("SERVICE_PORT").unwrap_or_else(|_| "3003".into()); // default 3003
 
     HttpServer::new(move || {
         App::new()
             .app_data(shared_state.clone()) // Share state across all workers // .clone() has a time complextity of O(1) here but under the hook is still preformace effective when wrapped around web::Data
-            .app_data(repo.clone())
+            .app_data(user_repo.clone())
+            .app_data(user_repo.clone())
+            .app_data(user_repo.clone())
+            // task 2 layer - CRUD to the JSON layer
             // User routes
             .route("/users", web::post().to(user_handler::create_user))
             .route("/users", web::get().to(user_handler::list_users))
@@ -62,8 +73,31 @@ async fn main() -> std::io::Result<()> {
             .route("/orders", web::get().to(order_handler::list_orders))
             .route("/orders/{id}", web::get().to(order_handler::get_order))
             .route("/orders/{id}", web::put().to(order_handler::update_order))
+            // task 3 layer - CRUD to th edb layer
+            // User routes
+            .route("/db/users", web::post().to(repo_handler::create_user))
+            .route("/db/users", web::get().to(repo_handler::list_users))
+            .route("/db/users/{id}", web::get().to(repo_handler::get_user))
+            .route("/db/users/{id}", web::put().to(repo_handler::update_user))
+            .route("/db/users/{id}", web::delete().to(repo_handler::delete_user))
+            // Item routes
+            .route("/db/items", web::post().to(repo_handler::create_item))
+            .route("/db/items", web::get().to(repo_handler::list_items))
+            .route("/db/items/active", web::get().to(repo_handler::list_active_items))
+            .route("/db/items/{id}", web::get().to(repo_handler::get_item))
+            .route("/db/items/{id}", web::put().to(repo_handler::update_item))
+            .route("/db/items/{id}", web::delete().to(repo_handler::delete_item))
+            // Order routes
+            .route("/db/orders", web::post().to(repo_handler::create_order))
+            .route("/db/orders", web::get().to(repo_handler::list_orders))
+            .route("/db/orders/{id}", web::get().to(repo_handler::get_order))
+            .route("/db/orders/{id}/details", web::get().to(repo_handler::get_order_with_items))
+            .route("/db/orders/{id}", web::put().to(repo_handler::update_order))
+            .route("/db/orders/{id}", web::delete().to(repo_handler::delete_order))
+            .route("/db/orders/user/{user_id}", web::get().to(repo_handler::get_orders_by_user))
+            .route("/db/orders/status", web::get().to(repo_handler::get_orders_by_status)) // ?status=Pending
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(forma("0.0.0.0:{}", port))?
     .run()
     .await
 }

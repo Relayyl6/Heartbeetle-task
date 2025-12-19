@@ -1,6 +1,6 @@
 use sqlx::{Pool, PgPool, Error};
 use uuid::Uuid;
-use crate::models::{Item, CreateItem, UpdateItem, Order, CreateOrder, UpdateOrder, OrderStatus};
+use crate::models::{User, CreateUser, UpdateUser};
 
 
 pub struct UserRepository {
@@ -94,4 +94,21 @@ impl UserRepository {
     
         Ok(())
     }
-}
+
+    pub async fn list_users(
+        &self
+    ) -> Result<Vec<User>, sqlx::Error> {
+        let users = sqlx::query_as!(
+            Order,
+            r#"
+            SELECT *
+            FROM orders
+            ORDER BY created_at DESC
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(users)
+    }
+} 
