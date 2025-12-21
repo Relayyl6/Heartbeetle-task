@@ -28,12 +28,11 @@ pub async fn load_data_from_file() -> std::io::Result<AppState> {
         };
 
     // write the json file into the newly created file
-    let empty_state_json = serde_json::to_string_pretty(&empty_state);
+    let empty_state_json = serde_json::to_string_pretty(&empty_state)?;
     tokio::fs::write("data.json", empty_state_json).await?;
 
     println!("Created data.json successfully");
     Ok(empty_state)
-
     }
 }
 
