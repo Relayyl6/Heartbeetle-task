@@ -9,11 +9,19 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TYPE order_status AS ENUM (
+    'Pending',
+    'Paid',
+    'Cancelled',
+    'Shipping',
+    'Delivered'
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
     amount DOUBLE PRECISION NOT NULL,
-    status order_status NOT NULL,
+    status order_status NOT NULL DEFAULT 'Pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -22,13 +30,7 @@ CREATE TABLE IF NOT EXISTS orders (
         REFERENCES users(id)
         ON DELETE CASCADE
 );
-CREATE TYPE order_status AS ENUM (
-    'Pending',
-    'Paid',
-    'Cancelled',
-    'Shipping',
-    'Delivered'
-);
+
 
 
 CREATE TABLE IF NOT EXISTS items (

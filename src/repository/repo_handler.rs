@@ -1,6 +1,8 @@
 use actix_web::{web, HttpResponse, Responder};
 use uuid::Uuid;
-use crate::repositories::{UserRepository, ItemRepository, OrderRepository};
+use crate::repository::items_db::ItemRepository;
+use crate::repository::order_db::OrderRepository;
+use crate::repository::users_db::UserRepository;
 use crate::models::{CreateUser, UpdateUser, CreateItem, UpdateItem, CreateOrder, UpdateOrder, OrderStatus, StatusQuery};
 
 

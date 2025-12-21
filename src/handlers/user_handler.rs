@@ -1,5 +1,5 @@
 use actix_web::{web, HttpResponse, Responder};
-use crate::models::{SharedState, CreateUser, User};
+use crate::models::{SharedState, CreateUser, User, Order, UpdateUser};
 use crate::utils::{write_to_file};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -35,13 +35,13 @@ pub async fn create_user(
     // Store user
     s.users.insert(user.id, user.clone());
     match write_to_file(&s).await {
-        Ok(_) => HttpResponse::Created.json(serde_json::json!({
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "message": "user successfully signed up",
             "user": user,
         })),
         Err(err) => {
             s.users.remove(&user.id);
-            HttpResponse::InternalServerError(serde_json::json!({
+            HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to pesist user: {}", err)
             }))
         }
@@ -57,13 +57,13 @@ pub async fn get_user(
     match s.users.get(&user_id) {
         Some(user) => {
             let orders: Vec<Order> = user.orders.iter()
-                .filter_map(|order_id| s.orders.get(order_id).cloned())
+                .filter_map(|order| s.orders.get(&order.id).cloned())
                 .collect();
 
             let user_details = User {
                 id: user.id,
-                name: user.name,
-                email: user.email,
+                name: user.name.clone(),
+                email: user.email.clone(),
                 orders,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
@@ -104,12 +104,12 @@ pub async fn update_user(
                 "message": "user successfully updated",
                 "updated user": updated_user,
             })),
-            Err(e) => HttpResponse::InternalServerError().json(json!({
+            Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to persist update: {}", e)
             }))
         }
     } else {
-        HttpResponse::NotFound().json(json!({
+        HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("User with id {} not found", user_id)
         }))
     }
@@ -124,20 +124,20 @@ pub async fn delete_user(
         Some(deleted_user) => {
             // Persist to file
             match write_to_file(&s).await {
-                Ok(_) => HttpResponse::Ok().json(json!({
+                Ok(_) => HttpResponse::Ok().json(serde_json::json!({
                     "message": "User deleted successfully",
                     "user": deleted_user
                 })),
                 Err(e) => {
                     // Rollback - re-insert the user
                     s.users.insert(user_id, deleted_user);
-                    HttpResponse::InternalServerError().json(json!({
+                    HttpResponse::InternalServerError().json(serde_json::json!({
                         "error": format!("Failed to persist deletion: {}", e)
                     }))
                 }
             }
         },
-        None => HttpResponse::NotFound().json(json!({
+        None => HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("User with id {} not found", user_id)
         }))
     }

@@ -1,5 +1,5 @@
 use actix_web::{web, HttpResponse, Responder};
-use crate::models::{SharedState, CreateOrder, Order};
+use crate::models::{SharedState, CreateOrder, UpdateOrder, Order, OrderStatus, Item};
 use crate::utils::write_to_file;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -10,7 +10,7 @@ impl From<CreateOrder> for Order {
         Order {
             id: Uuid::new_v4(),
             user_id: c.user_id,
-            items: c.item_ids,
+            items: Vec::new(),
             amount: 0.0,
             status: OrderStatus::Pending,
             created_at: now,
@@ -19,7 +19,7 @@ impl From<CreateOrder> for Order {
     }
 }
 
-// Order layer 
+// Order layer
 pub async fn create_order(
     state: web::Data<SharedState>,
     req: web::Json<CreateOrder>
@@ -29,24 +29,28 @@ pub async fn create_order(
     let mut s = state.lock().await;
     // Verify user exists
     if !s.users.contains_key(&user_id) {
-        return HttpResponse::NotFound().json(json!({
+        return HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("User with id {} not found", user_id)
         }));
     }
     // Calculate total amount from items
     let mut total_amount = 0.0;
+    let mut items_vec = Vec::new();
+
+
     for item_id in &dto.item_ids {
         match s.items.get(item_id) {
             Some(item) => {
                 if !item.is_active {
-                    return HttpResponse::BadRequest().json(json!({ // 400 BadRequest
+                    return HttpResponse::BadRequest().json(serde_json::json!({ // 400 BadRequest
                         "error": format!("Item {} is not available", item_id)
                     }));
                 }
                 total_amount += item.price;
+                items_vec.push(item.clone());
             },
             None => {
-                return HttpResponse::NotFound().json(json!({
+                return HttpResponse::NotFound().json(serde_json::json!({
                     "error": format!("Item with id {} not found", item_id)
                 }));
             }
@@ -55,6 +59,9 @@ pub async fn create_order(
     // Create order
     let mut order: Order = dto.into();
     order.amount = total_amount;  // Set calculated amount
+    order.items = items_vec;
+
+
     // Store order
     s.orders.insert(order.id, order.clone());
     // Persist to file
@@ -65,7 +72,7 @@ pub async fn create_order(
         })),
         Err(e) => {
             s.orders.remove(&order.id);
-            HttpResponse::InternalServerError().json(json!({
+            HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to persist order: {}", e)
             }))
         }
@@ -80,49 +87,71 @@ pub async fn update_order(
     let order_id = path.into_inner();
     let dto = req.into_inner();
     let mut s = state.lock().await;
-    if let Some(order) = s.orders.get_mut(&order_id) {
-        // Update item_ids if provided
-        if let Some(new_item_ids) = dto.item_ids { // add as many items to the list as pssible // more flexible thn adding an id in the path
-            // Recalculate amount with new items
-            let mut new_amount = 0.0;
-            for item_id in &new_item_ids {
-                match s.items.get(item_id) {
-                    Some(item) => {
-                        if !item.is_active {
-                            return HttpResponse::BadRequest().json(json!({
-                                "error": format!("Item {} is not available", item_id)
-                            }));
-                        }
-                        new_amount += item.price; // calculate the new amount of the order
-                    },
-                    None => {
-                        return HttpResponse::NotFound().json(json!({
-                            "error": format!("Item with id {} not found", item_id)
+
+
+    // check if order exists
+    if !s.orders.contains_key(&order_id) {
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": format!("Order with id {} not found", order_id)
+        }));
+    }
+
+    // Validate and collect items BEFORE getting mutable reference to order
+    let (new_items_vec, new_amount) = if let Some(new_item_ids) = &dto.item_ids {
+        let mut new_amount = 0.0;
+        let mut new_items_vec = Vec::new();
+        
+        for item_id in new_item_ids {
+            match s.items.get(item_id) {
+                Some(item) => {
+                    if !item.is_active {
+                        return HttpResponse::BadRequest().json(serde_json::json!({
+                            "error": format!("Item {} is not available", item_id)
                         }));
                     }
+                    new_amount += item.price;
+                    new_items_vec.push(item.clone());
+                },
+                None => {
+                    return HttpResponse::NotFound().json(serde_json::json!({
+                        "error": format!("Item with id {} not found", item_id)
+                    }));
                 }
             }
-            order.items = new_item_ids;
-            order.amount = new_amount;
         }
+        (Some(new_items_vec), Some(new_amount))
+    } else {
+        (None, None)
+    };
+    
+    // NOW get mutable reference to order and update it
+    if let Some(order) = s.orders.get_mut(&order_id) {
+        // Update items if provided
+        if let Some(items) = new_items_vec {
+            order.items = items;
+            order.amount = new_amount.unwrap();
+        }
+        
         // Update status if provided
         if let Some(new_status) = dto.status {
             order.status = new_status;
         }
+        
         order.updated_at = Utc::now();
         let updated_order = order.clone();
+        
         // Persist to file
         match write_to_file(&s).await {
             Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-                "message": "Order sucessfully created",
-                "updated order": updated_order 
+                "message": "Order successfully updated",
+                "updated_order": updated_order 
             })),
-            Err(e) => HttpResponse::InternalServerError().json(json!({
+            Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to persist update: {}", e)
             }))
         }
     } else {
-        HttpResponse::NotFound().json(json!({
+        HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("Order with id {} not found", order_id)
         }))
     }
@@ -138,7 +167,7 @@ pub async fn get_order_with_details(
         Some(order) => {
             // Fetch full item details
             let items: Vec<Item> = order.items.iter()
-                .filter_map(|item_id| s.items.get(item_id).cloned())
+                .filter_map(|item| s.items.get(&item.id).cloned())
                 .collect();
             let order_details = Order {
                 id: order.id,
@@ -151,7 +180,7 @@ pub async fn get_order_with_details(
             };
             HttpResponse::Ok().json(order_details)
         },
-        None => HttpResponse::NotFound().json(json!({
+        None => HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("Order with id {} not found", order_id)
         }))
     }

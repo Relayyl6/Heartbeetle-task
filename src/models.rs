@@ -2,7 +2,8 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
-use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Item {
@@ -48,7 +49,7 @@ pub struct User {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AppState {
     pub users: HashMap<Uuid, User>,
     pub orders: HashMap<Uuid, Order>,
@@ -111,4 +112,60 @@ pub struct UpdateUser {
 #[derive(Debug, Deserialize)]
 pub struct StatusQuery {
     pub status: OrderStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "PascalCase")]
+pub enum JobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum JobPriority {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Job {
+    pub job_id: u64,
+    pub status: JobStatus,
+    pub payload: String,
+    pub result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<JobPriority>,  // Bonus feature
+    pub retries: u32,  // Bonus feature
+    pub max_retries: u32,  // Bonus feature
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,  // Bonus feature
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateJob {
+    pub payload: String,
+    #[serde(default)]
+    pub priority: Option<JobPriority>,
+    #[serde(default)]
+    pub max_retries: Option<u32>,
+    #[serde(default)]
+    pub ttl_seconds: Option<i64>,  // Time to live in seconds
+}
+
+#[derive(Debug, Clone)]
+pub struct JobQueue {
+    pub jobs: Arc<Mutex<Vec<Job>>>,
+    pub next_id: Arc<Mutex<u64>>,
+    pub max_queue_size: usize,  // Bonus feature
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StatusJobQuery {
+    pub status: JobStatus,
 }

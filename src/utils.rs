@@ -6,12 +6,12 @@ use std::io::Error;
 use rand::Rng;
 
 pub async fn write_to_file(state: &AppState) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(state)?;
-    tokio::fs::write("data.json", json).await?;
+    let json_content = serde_json::to_string_pretty(state)?;
+    tokio::fs::write("data.json", json_content).await?;
     Ok(())
 }
 
-pub async fn load_data_from_file() -> std::io::Result<AppState, Error> {
+pub async fn load_data_from_file() -> std::io::Result<AppState> {
     // Check if file exists
     if tokio::fs::metadata("data.json").await.is_ok() {
         let content = tokio::fs::read_to_string("data.json").await?;
@@ -29,7 +29,7 @@ pub async fn load_data_from_file() -> std::io::Result<AppState, Error> {
 
     // write the json file into the newly created file
     let empty_state_json = serde_json::to_string_pretty(&empty_state);
-    tokio::fs::write("data.json", json).await?;
+    tokio::fs::write("data.json", empty_state_json).await?;
 
     println!("Created data.json successfully");
     Ok(empty_state)
@@ -38,11 +38,11 @@ pub async fn load_data_from_file() -> std::io::Result<AppState, Error> {
 }
 
 pub fn generate_random_array() -> Vec<i32> {
-    let mut rng = rand::thread_rng();
-    let size = rng.gen_range(5..=50);
+    let mut rng = rand::rng();
+    let size = rng.random_range(5..=50);
     let mut vec = Vec::with_capacity(size);
     for _ in 0..size {
-        let value = rng.gen_range(-100..=100);
+        let value = rng.random_range(-100..=100);
         vec.push(value);
     }
     vec
