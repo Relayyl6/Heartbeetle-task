@@ -28,7 +28,15 @@ pub async fn load_data_from_file() -> std::io::Result<AppState> {
         };
 
     // write the json file into the newly created file
-    let empty_state_json = serde_json::to_string_pretty(&empty_state)?;
+    let empty_state_json = match  serde_json::to_string_pretty(&empty_state) {
+        Ok(json) => json,
+        Err(e) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to serialize: {}", e)
+            ));
+        }
+    };
     tokio::fs::write("data.json", empty_state_json).await?;
 
     println!("Created data.json successfully");

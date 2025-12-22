@@ -1,6 +1,6 @@
 use sqlx::{PgPool, Error};
 use uuid::Uuid;
-use crate::models::{Order, CreateOrder, UpdateOrder, OrderStatus};
+use crate::models::{Order, OrderDB, CreateOrder, UpdateOrder, OrderStatus, Item};
 
 
 pub struct OrderRepository {
@@ -23,21 +23,20 @@ impl OrderRepository {
 
         // 1. Create the order
         let order = sqlx::query_as!(
-            Order,
+            OrderDB,
             r#"
-            INSERT INTO orders (user_id, amount, status)
-            VALUES ($1, $2, $3)
-            RETURNING 
+            INSERT INTO orders (user_id, amount)
+            VALUES ($1, $2)
+            RETURNING
                 id,
                 user_id,
                 amount,
-                status as "status: OrderStatus",
+                status as "status: OrderStatus", -- default calculated in the db as pending
                 created_at,
                 updated_at
             "#,
             req.user_id,
             0.0, // Amount will be calculated
-            OrderStatus::Pending as OrderStatus
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -73,12 +72,12 @@ impl OrderRepository {
 
         // 3. Update order with calculated amount
         let final_order = sqlx::query_as!(
-            Order,
+            OrderDB,
             r#"
             UPDATE orders
             SET amount = $1
             WHERE id = $2
-            RETURNING 
+            RETURNING
                 id,
                 user_id,
                 amount,
@@ -95,7 +94,19 @@ impl OrderRepository {
         // Commit transaction
         tx.commit().await?;
 
-        Ok(final_order)
+        let items = self.get_order_items(final_order.id).await?;
+    
+        Ok(
+            Order {
+                id: final_order.id,
+                user_id: final_order.user_id,
+                items,
+                amount: final_order.amount,
+                status: final_order.status,
+                created_at: final_order.created_at,
+                updated_at: final_order.updated_at,
+            }
+        )
     }
 
     pub async fn get_order(
@@ -103,7 +114,7 @@ impl OrderRepository {
         id: Uuid,
     ) -> Result<Order, Error> {
         let order = sqlx::query_as!(
-            Order,
+            OrderDB,
             r#"
             SELECT 
                 id,
@@ -120,7 +131,19 @@ impl OrderRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(order)
+        let items = self.get_order_items(order.id).await?;
+    
+        Ok(
+            Order {
+                id: order.id,
+                user_id: order.user_id,
+                items,
+                amount: order.amount,
+                status: order.status,
+                created_at: order.created_at,
+                updated_at: order.updated_at,
+            }
+        )
     }
 
     // Get order with item details
@@ -212,14 +235,14 @@ impl OrderRepository {
 
         // Update the order
         let order = sqlx::query_as!(
-            Order,
+            OrderDB,
             r#"
             UPDATE orders
             SET
                 status = COALESCE($1, status),
                 updated_at = now()
             WHERE id = $2
-            RETURNING 
+            RETURNING
                 id,
                 user_id,
                 amount,
@@ -227,7 +250,7 @@ impl OrderRepository {
                 created_at,
                 updated_at
             "#,
-            req.status.as_ref().map(|s| s as &OrderStatus),
+            req.status.as_ref() as Option<&OrderStatus>,
             id
         )
         .fetch_one(&mut *tx)
@@ -235,7 +258,20 @@ impl OrderRepository {
 
         tx.commit().await?;
 
-        Ok(order)
+        // Convert OrderDB to Order by fetching items for each
+        let items = self.get_order_items(order.id).await?;
+    
+        Ok(
+            Order {
+                id: order.id,
+                user_id: order.user_id,
+                items,
+                amount: order.amount,
+                status: order.status,
+                created_at: order.created_at,
+                updated_at: order.updated_at,
+            }
+        )
     }
 
     pub async fn delete_order(
@@ -254,8 +290,8 @@ impl OrderRepository {
     }
 
     pub async fn list_orders(&self) -> Result<Vec<Order>, Error> {
-        let orders = sqlx::query_as!(
-            Order,
+        let orders_db = sqlx::query_as!(
+            OrderDB,
             r#"
             SELECT 
                 id,
@@ -271,6 +307,21 @@ impl OrderRepository {
         .fetch_all(&self.pool)
         .await?;
 
+        // Convert OrderDB to Order by fetching items for each
+        let mut orders = Vec::new();
+        for order_db in orders_db {
+            let items = self.get_order_items(order_db.id).await?;
+            orders.push(Order {
+                id: order_db.id,
+                user_id: order_db.user_id,
+                items,
+                amount: order_db.amount,
+                status: order_db.status,
+                created_at: order_db.created_at,
+                updated_at: order_db.updated_at,
+            });
+        }
+    
         Ok(orders)
     }
 
@@ -279,8 +330,8 @@ impl OrderRepository {
         &self,
         user_id: Uuid
     ) -> Result<Vec<Order>, Error> {
-        let orders = sqlx::query_as!(
-            Order,
+        let orders_db = sqlx::query_as!(
+            OrderDB,
             r#"
             SELECT
                 id,
@@ -297,8 +348,41 @@ impl OrderRepository {
         )
         .fetch_all(&self.pool)
         .await?;
-
+    
+        // Convert OrderDB to Order by fetching items for each
+        let mut orders = Vec::new();
+        for order_db in orders_db {
+            let items = self.get_order_items(order_db.id).await?;
+            orders.push(Order {
+                id: order_db.id,
+                user_id: order_db.user_id,
+                items,
+                amount: order_db.amount,
+                status: order_db.status,
+                created_at: order_db.created_at,
+                updated_at: order_db.updated_at,
+            });
+        }
+    
         Ok(orders)
+    }
+    
+    // Helper method to get items for an order
+    async fn get_order_items(&self, order_id: Uuid) -> Result<Vec<Item>, Error> {
+        let items = sqlx::query_as!(
+            Item,
+            r#"
+            SELECT i.*
+            FROM items i
+            INNER JOIN order_items oi ON i.id = oi.item_id
+            WHERE oi.order_id = $1
+            "#,
+            order_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+    
+        Ok(items)
     }
 
     // Get orders by status
@@ -306,8 +390,8 @@ impl OrderRepository {
         &self,
         status: OrderStatus
     ) -> Result<Vec<Order>, Error> {
-        let orders = sqlx::query_as!(
-            Order,
+        let orders_db = sqlx::query_as!(
+            OrderDB,
             r#"
             SELECT 
                 id,
@@ -325,8 +409,22 @@ impl OrderRepository {
         .fetch_all(&self.pool)
         .await?;
 
+        // Convert OrderDB to Order by fetching items for each
+        let mut orders = Vec::new();
+        for order_db in orders_db {
+            let items = self.get_order_items(order_db.id).await?;
+            orders.push(Order {
+                id: order_db.id,
+                user_id: order_db.user_id,
+                items,
+                amount: order_db.amount,
+                status: order_db.status,
+                created_at: order_db.created_at,
+                updated_at: order_db.updated_at,
+            });
+        }
+
         Ok(orders)
     }
 }
 
-// Helper struct for order with items

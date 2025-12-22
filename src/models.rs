@@ -4,37 +4,64 @@ use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use sqlx::Type;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Item {
     pub id: Uuid,
     pub name: String,
     pub price: f64,
-    pub quantity: u32,
+    pub quantity: i32,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub is_active: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Order {
+
+
+// Database model (matches the table structure)
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct OrderDB {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub items: Vec<Item>,
     pub amount: f64,
     pub status: OrderStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
+// API model (with items populated)
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Order {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub items: Vec<Item>,  // Populated from order_items join
+    pub amount: f64,
+    pub status: OrderStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Type, PartialEq, Eq)]
+#[sqlx(type_name = "order_status", rename_all = "PascalCase")]
 pub enum OrderStatus {
     Pending,
     Paid,
     Cancelled,
     Shipping,
     Delivered,
+}
+
+// Database model (matches the table structure)
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct UserDB {
+    pub id: Uuid,
+    pub name: String,
+    pub email: String,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -67,7 +94,7 @@ pub type SharedState = Arc<Mutex<AppState>>;
 pub struct CreateItem {
     pub name: String,
     pub price: f64,
-    pub quantity: u32,
+    pub quantity: i32,
     pub description: Option<String>,
 }
 
@@ -75,7 +102,7 @@ pub struct CreateItem {
 pub struct UpdateItem {
     pub name: Option<String>,
     pub price: Option<f64>,
-    pub quantity: Option<u32>,
+    pub quantity: Option<i32>,
     pub description: Option<String>,
     pub is_active: Option<bool>,
 }
